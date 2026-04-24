@@ -1,0 +1,24 @@
+# Entornos virtuales y dependencias locales
+backend/.venv/
+frontend/node_modules/
+
+# Archivos compilados de Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Archivos temporales y de sistema
+**/.DS_Store
+**/Thumbs.db
+**/*.log
+
+# Git
+.git/
+.gitignore
+
+# Archivos de desarrollo de VS Code
+.vscode/
+
+# Archivos de entorno local
+**/.env.local
+**/.env.development.local
