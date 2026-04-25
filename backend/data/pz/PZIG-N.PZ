@@ -1,0 +1,13 @@
+* datos obtenidos de Geoscope
+*Para componente Norte
+* valido desde 15/02/2013. 
+*instrumento STS1/Q330HR
+ZEROS 2	
+	+0.000000e+00	+0.000000e+00	
+	+0.000000e+00	+0.000000e+00	
+POLES 4
+	-1.219600e-02	+1.198200e-02	
+	-1.219600e-02	-1.198200e-02	
+	-3.674580e+01	+7.200380e+01	
+	-3.674580e+01	-7.200380e+01	
+CONSTANT 2.91682e+13

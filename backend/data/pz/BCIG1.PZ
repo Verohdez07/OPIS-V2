@@ -1,0 +1,16 @@
+*  Posterior a oct 2014
+* Para un Guralp 40T  +  Dig. Taurus Trident
+ZEROS 2 
+
+
+
+Poles 5
+
+-1.48597E-01  1.48597E-01
+-1.48597E-01 -1.48597E-01
+-1.13097E+03  0.0000E+00
+-1.00531E+03  0.0000E+00
+-5.02655E+02  0.0000E+00
+
+CONSTANT 5.80e+20
+

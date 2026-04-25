@@ -2,6 +2,7 @@
 import os
 import pathlib
 import tempfile
+import pandas as pd
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -33,12 +34,16 @@ estado = {
 
 
 # ── Modelos Pydantic (definen el formato del JSON que recibe el backend) ──────
-
+class Entrada(BaseModel):
+    estaciones: Dict[str, Any]
+    t_origen: int
+    
 class PickDeEstacion(BaseModel):
     P: Optional[float] = None
     S: Optional[str] = None   # tiempo de llegada S como ISO string, o None
     stla: Optional[float] = None
     stlo: Optional[float] = None
+    t_origin: Optional[int] = None
 
 
 class CuerpoPicks(BaseModel):
@@ -166,7 +171,7 @@ def obtener_trazas():
 def guardar_picks(cuerpo: CuerpoPicks):
     # Convertir el modelo Pydantic a un diccionario simple
     estado["picks"] = {
-        estacion: {"P": pick.P, "S": pick.S, "stla": pick.stla, "stlo": pick.stlo}
+        estacion: {"P": pick.P, "S": pick.S, "stla": pick.stla, "stlo": pick.stlo, "t_origin" : pick.t_origin}
         for estacion, pick in cuerpo.picks.items()
     }
     return {"ok": True}
@@ -233,6 +238,9 @@ def read_pz_files(station, base_path="data/pz"):
 # Lee los archivos .PZ de cada estacion y aplica la correccion usando obspy.
 # Actualiza el stream en el estado global y devuelve las nuevas amplitudes.
 
+from fastapi import HTTPException
+import numpy as np
+
 @app.get("/remove_response")
 def quitar_respuesta():
     if estado["stream"] is None:
@@ -244,37 +252,63 @@ def quitar_respuesta():
 
     for traza in stream_corregido:
         station = traza.stats.station
+        channel = traza.stats.channel
+
         try:
-            paz = read_pz_files(station)
+            paz = read_pz_files(station)  # ⚠️ ideal: usar station + channel
         except FileNotFoundError:
-            # Si no hay archivo PZ para esta estacion, se omite
             estaciones_sin_pz.append(station)
             continue
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error leyendo PZ de {station}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error leyendo PZ de {station}: {e}"
+            )
 
         try:
-            # Remover la respuesta instrumental usando poles & zeros de obspy
-            # water_level=60 evita division por cero en frecuencias bajas
+            # 🔹 Asegurar tipo correcto
+            traza.data = traza.data.astype(np.float64)
+
+            # 🔹 Pre-procesamiento (MUY IMPORTANTE)
+            traza.detrend("demean")
+            traza.detrend("linear")
+            traza.taper(max_percentage=0.05)
+
+            # 🔹 Definir pre_filt según frecuencia de muestreo
+            fs = traza.stats.sampling_rate
+
+            if fs >= 100:
+                pre_filt = [0.1, 0.2, 25, 40]
+            elif fs >= 50:
+                pre_filt = [0.05, 0.1, 20, 30]
+            else:
+                pre_filt = [0.02, 0.05, 10, 20]
+
+            # 🔹 Quitar respuesta instrumental
             traza.simulate(
                 paz_remove=paz,
-                paz_simulate=None,
-                water_level=60,
+                remove_sensitivity=True,
+                pre_filt=pre_filt,
                 zero_mean=True,
-                taper=True,
+                taper=True
             )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error quitando respuesta de {station}: {e}")
 
-    # Guardar el stream corregido en el estado global
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error quitando respuesta de {station}.{channel}: {e}"
+            )
+    # Guardar stream corregido
     estado["stream"] = stream_corregido
 
-    # Preparar la respuesta con los nuevos datos de las trazas
+    # ── Preparar salida ────────────────────────────────
     resultado = {}
     MAX_PUNTOS = 10000
 
     for traza in stream_corregido:
         estacion = traza.stats.station
+        canal = traza.stats.channel
+
         datos = traza.data.astype(float)
         npts = len(datos)
         delta = traza.stats.delta
@@ -288,53 +322,109 @@ def quitar_respuesta():
 
         tiempos = [i * delta * paso for i in range(len(datos))]
 
-        # Clave unica: "ESTACION.CANAL"
-        clave = estacion + "." + traza.stats.channel
+        clave = estacion + "." + canal
+
         resultado[clave] = {
             "times": tiempos,
             "amplitudes": datos.tolist(),
             "starttime": starttime,
             "delta": delta,
-            "channel": traza.stats.channel,
+            "channel": canal,
         }
 
     return {
         "traces": resultado,
         "sin_pz": estaciones_sin_pz,
     }
-
 @app.post("/calcular_epicentro")
-def calcular_epicentro(estaciones: Dict[str, Any]):
+def calcular_epicentro(data: Entrada):
+    estaciones = data.estaciones
+    t_origen = data.t_origen
+    # Creamos el dataframe
+    lista_datos = []
+    for nombre, est in estaciones.items():
+        if est['P'] is not None:
+            lista_datos.append({
+                'station': nombre,
+                'lat': est['stla'],
+                'lon': est['stlo'],
+                'p_arrival_seconds': est['P']
+            })
+    if not lista_datos:
+        return {"error":"No hay datos de estaciones válidos"}
+    # Definir los límites para la malla, a partir de calcular las lat y lon mínimas y máximas
+    estaciones_df = pd.DataFrame(lista_datos)
+    lat_min = estaciones_df['lat'].min() - 2.0
+    lat_max = estaciones_df['lat'].max() + 2.0
+    lon_min = estaciones_df['lon'].min() - 2.0
+    lon_max = estaciones_df['lon'].max() + 2.0
 
-    lat_min = None
-    lat_max = None
-    lon_min = None
-    lon_max = None
+    # Ejecutamos la inversión
+    lat_grid, lon_grid, matriz_errores = realizar_inversion(estaciones_df, lat_min, lat_max, lon_min, lon_max,t_origen)
 
-    for nombre in estaciones:
-        est = estaciones[nombre]
+    # Encontramos el epicentro, es decir el punto de la malla con el error mínimo entre Tobs- T_calc
+    idx_aplanado = np.argmin(matriz_errores)
+    i, j = np.unravel_index(idx_aplanado, matriz_errores.shape)
+    print(f"DEBUG: Epicentro calculado -> Lat: {lat_grid[i, j]}, Lon: {lon_grid[i, j]}, RMS: {matriz_errores[i, j]}")
 
-        lat = est['stla']
-        lon = est['stlo']
+    # Regresar resultados
+    return {"epicentro_estimado":{"lat": float(lat_grid[i, j]),
+            "lon": float(lon_grid[i,j]),
+            "rms_minimo": float(matriz_errores[i, j])},
 
-        if lat_min is None or lat < lat_min:
-            lat_min = lat
+            "bbox": {"lat_min": lat_min, "lat_max": lat_max, "lon_min": lon_min,
+            }
+        }
 
-        if lat_max is None or lat > lat_max:
-            lat_max = lat
+def calcular_distancia(lat_est, lon_est, lat_punto, lon_punto):
+    # Calculo de distancias epicentrales en radianes y km
+    R = 6371.0
 
-        if lon_min is None or lon < lon_min:
-            lon_min = lon
+    # Conversión a radianes
+    lat1, lon1 = np.radians(lat_est), np.radians(lon_est)
+    lat2, lon2 = np.radians(lat_punto), np.radians(lon_punto)
 
-        if lon_max is None or lon > lon_max:
-            lon_max = lon
+    # Cálculo de colatitudes: 90º-latitud
+    colat1 = np.pi/2 - lat1
+    colat2 = np.pi/2 - lat2
 
-    return {
-        "lat_min": lat_min,
-        "lat_max": lat_max,
-        "lon_min": lon_min,
-        "lon_max": lon_max
-    }
+    # Distancias epicentrales
+    cos_delta = (np.cos(colat1) * np.cos(colat2) + np.sin(colat1) * np.sin(colat2) * np.cos(lon1-lon2))
+
+    # Para evitar errores numéricos
+    cos_delta = np.clip(cos_delta, -1.0, 1.0)
+    delta = np.arccos(cos_delta)
+
+    return delta * R
+
+def realizar_inversion(estaciones_df, lat_min, lat_max, lon_min, lon_max, t_origen, vp = 6.0):
+    # Creamos la malla o grid
+    lats = np.arange(lat_min, lat_max, 0.05) # intervalo de cada punto del mallado, mientras más chico, más fina la malla
+    lons = np.arange(lon_min, lon_max, 0.05)
+    lat_grid, lon_grid = np.meshgrid(lats, lons)
+
+    # Creación de la matriz de errores
+    matriz_errores = np.zeros_like(lat_grid)
+
+    # Ciclo for para que se recorra cada punto de la malla
+    for i in range(lat_grid.shape[0]):
+        for j in range(lat_grid.shape[1]):
+            lat_punto = lat_grid[i, j]
+            lon_punto = lon_grid[i, j]
+
+            # Calculamos las distancias desde el punto de la malla a todas las estaciones
+            distancias = calcular_distancia(estaciones_df['lat'], estaciones_df['lon'], lat_punto, lon_punto)
+
+            # Calcular tiempos teóricos (Ti)
+            t_calc = t_origen + (distancias / vp)
+
+            # Cálculo del error (RMS)
+            residuales = estaciones_df['p_arrival_seconds'].values - t_calc
+            rms = np.sqrt(np.mean(residuales**2))
+
+            # Guardar en la matriz
+            matriz_errores[i, j] = rms
+    return lat_grid, lon_grid, matriz_errores
 
 # ── Servir el frontend compilado (solo cuando existe /frontend_dist) ──────────
 # En desarrollo el frontend corre en Vite, este bloque no aplica.

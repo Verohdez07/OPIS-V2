@@ -1,0 +1,14 @@
+* MNIG Monterrey
+* CMG-3T  +  Q330
+* Mantenimiento Jorge y Alex
+* con EST 0.5 g
+* 03 agosto de 2017
+ zeros 2
+ poles 5
+-3.700796E-02   3.700796E-02
+-3.700796E-02  -3.700796E-02
+-1.130973E+03   0.000000E+00
+-1.005310E+03   0.000000E+00
+-5.026548E+02   0.000000E+00
+
+constant 3.595569E+17 

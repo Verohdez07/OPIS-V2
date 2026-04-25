@@ -7,87 +7,185 @@
 
     <!-- Bootstrap 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
-    <!-- Leaflet CSS -->
+
+    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- Estilos propios (solo lo que Bootstrap no cubre) -->
+
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body class="d-flex flex-column vh-100 overflow-hidden">
+
+  <body class="d-flex flex-column vh-100">
 
     <!-- Cabecera -->
     <nav class="navbar bg-white border-bottom px-3 py-2">
       <span class="navbar-brand mb-0 h5 fw-semibold">Opis &mdash; Analisis sismico</span>
     </nav>
 
-    <!-- Barra de carga de archivos -->
+    <!-- Barra carga -->
     <div class="d-flex align-items-center gap-2 px-3 py-2 bg-light border-bottom flex-wrap">
       <span class="fw-semibold small">Cargar archivo</span>
       <span class="badge bg-secondary">SAC</span>
+
       <input type="file" id="file-input" accept=".sac,.SAC" multiple
              class="form-control form-control-sm" style="max-width:260px;" />
+
       <div id="file-chips" class="d-flex gap-1 flex-wrap"></div>
+
       <button id="btn-upload" class="btn btn-primary btn-sm">Cargar trazas</button>
       <span id="upload-status" class="small text-muted"></span>
     </div>
 
-    <!-- Navegador de estaciones (aparece despues de cargar archivos) -->
-    <div id="station-nav" class="d-none border-bottom bg-white px-3 py-2" style="flex-shrink:0;">
+    <!-- Navegador estaciones -->
+    <div id="station-nav" class="d-none border-bottom bg-white px-3 py-2">
       <div class="d-flex align-items-center gap-2 flex-wrap">
         <span class="small fw-semibold text-secondary">Estacion:</span>
-        <button id="btn-prev-sta" class="btn btn-sm btn-outline-secondary" style="line-height:1; padding:2px 10px; font-size:16px;">&#8249;</button>
+
+        <button id="btn-prev-sta" class="btn btn-sm btn-outline-secondary">&#8249;</button>
+
         <div id="station-buttons" class="d-flex gap-1 flex-wrap"></div>
-        <button id="btn-next-sta" class="btn btn-sm btn-outline-secondary" style="line-height:1; padding:2px 10px; font-size:16px;">&#8250;</button>
+
+        <button id="btn-next-sta" class="btn btn-sm btn-outline-secondary">&#8250;</button>
+
         <span id="station-progress" class="small text-muted ms-1"></span>
       </div>
     </div>
 
-    <!-- Contenido principal -->
-    <div class="d-flex flex-grow-1 overflow-hidden">
+    <!-- CONTENIDO PRINCIPAL -->
+    <div class="container-fluid flex-grow-1">
+      <div class="row h-100">
 
-      <!-- Panel de trazas -->
-      <div class="flex-grow-1 bg-white border-end d-flex flex-column overflow-hidden">
-        <div id="waveforms-placeholder"
-             class="flex-grow-1 d-flex align-items-center justify-content-center text-muted">
-          Carga archivos SAC para ver las trazas
+        <!-- TRACAS -->
+        <div class="col-12 col-lg-7 bg-white border-end d-flex flex-column">
+
+          <div id="waveforms-placeholder"
+               class="flex-grow-1 d-flex align-items-center justify-content-center text-muted">
+            Carga archivos SAC para ver las trazas
+          </div>
+
+          <div id="waveforms"
+               class="flex-grow-1 overflow-auto"
+               style="display:none;"></div>
         </div>
-        <div id="waveforms" style="display:none; flex:1 1 0; min-height:0; overflow-y:auto;"></div>
+
+        <!-- PANEL DERECHO -->
+        <aside class="col-12 col-lg-3 bg-white p-3 border-top border-lg-start overflow-auto">
+
+          <!-- Acciones -->
+          <p class="text-uppercase fw-semibold small text-secondary mb-1">Acciones</p>
+
+          <div class="d-grid gap-1 mb-3">
+            <button id="btn-remove-response" class="btn btn-outline-secondary btn-sm">
+              Quitar instrumentacion
+            </button>
+
+            <button id="btn-save-picks" class="btn btn-outline-primary btn-sm">
+              Guardar picks P y S
+            </button>
+
+            <button id="btn-locate" class="btn btn-success btn-sm">
+              Calcular epicentro
+            </button>
+
+            <button id="btn-clear" class="btn btn-outline-danger btn-sm">
+              Limpiar
+            </button>
+          </div>
+
+          <!-- Picks -->
+          <p class="text-uppercase fw-semibold small text-secondary mb-1">
+            Picks manuales
+          </p>
+
+          <div class="d-flex gap-1 mb-2">
+            <button id="btn-mode-P" class="btn btn-primary btn-sm flex-fill">Modo P</button>
+            <button id="btn-mode-S" class="btn btn-outline-danger btn-sm flex-fill">Modo S</button>
+          </div>
+
+          <div id="picks-panel" class="mb-3">
+            <p class="text-muted small">Carga trazas para activar el picking</p>
+          </div>
+
+          <div class="border-top pt-3">
+
+            <label for="time-slider" class="form-label small fw-semibold mb-2">
+              Tiempo origen
+            </label>
+
+            <!-- escala -->
+            <div class="d-flex justify-content-between small text-muted mb-1">
+                <span id="time-min">0 s</span>
+                <span id="time-max">400 s</span>
+            </div>
+
+            <!-- slider -->
+            <input
+              type="range"
+              class="form-range w-100"
+              id="time-slider"
+              min="0"
+              max="400"
+              value="0"
+              step="1"
+            />
+
+            <!-- valor dinámico -->
+            <div class="text-end mt-1">
+              <span id="time-value" class="badge bg-primary">0 s</span>
+            </div>
+            <!--Información del evento-->
+            <div class="mt-3 border-top pt-2">
+
+              <div class="small fw-semibold text-secondary mb-1">
+                Evento
+              </div>
+
+              <div class="small">
+                <div><b>Fecha:</b> <span id="event-date">----</span></div>
+                <div><b>Hora:</b> <span id="event-time">----</span></div>
+                <div><b>Lat:</b> <span id="event-lat">--</span> °</div>
+                <div><b>Lon:</b> <span id="event-lon">--</span> °</div>
+                <div><b>Prof:</b> <span id="event-depth">--</span> km</div>
+              </div>
+
+            </div>
+          </div>
+
+        </aside>
+
+        <!-- MAPA -->
+        <div class="col-12 col-lg-2 border-top border-lg-start p-0 d-flex flex-column">
+
+          <div id="div-mapa"
+               class="flex-grow-1 d-flex"
+               style="display:none;">
+
+            <div id="map" class="w-100 h-100"></div>
+
+          </div>
+
+        </div>
+
       </div>
-
-      <!-- Panel derecho -->
-      <aside class="bg-white p-3 border-start overflow-y-auto" style="width:270px; min-width:270px;">
-
-        <!-- Acciones -->
-        <p class="text-uppercase fw-semibold small text-secondary mb-1">Acciones</p>
-        <div class="d-grid gap-1 mb-3">
-          <button id="btn-remove-response" class="btn btn-outline-secondary btn-sm">Quitar instrumentacion</button>
-          <button id="btn-save-picks" class="btn btn-outline-primary btn-sm">Guardar picks P y S</button>
-          <button id="btn-locate" class="btn btn-success btn-sm">Calcular epicentro</button>
-          <button id="btn-clear" class="btn btn-outline-danger btn-sm">Limpiar</button>
-        </div>
-
-        <!-- Picks manuales -->
-        <p class="text-uppercase fw-semibold small text-secondary mb-1">Picks manuales</p>
-        <div class="d-flex gap-1 mb-2">
-          <button id="btn-mode-P" class="btn btn-primary btn-sm flex-fill">Modo P</button>
-          <button id="btn-mode-S" class="btn btn-outline-danger btn-sm flex-fill">Modo S</button>
-        </div>
-        <div id="picks-panel" class="mb-3">
-          <p class="text-muted small">Carga trazas para activar el picking</p>
-        </div>
-
-      </aside>
     </div>
 
-    <!-- Mapa -->
-    <div id="div-mapa" class="border-top" style="height:28vh; min-height:150px; flex-shrink:0; display:none;">
-      <div id="map" style="height:100%; width:100%;"></div>
-    </div>
-
-    <!-- Scripts -->
+    <!-- SCRIPTS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+
+    <!-- 🔥 JS DEL SLIDER -->
+    <script>
+      const slider = document.getElementById("time-slider");
+      const label = document.getElementById("time-value");
+
+      if (slider && label) {
+        slider.addEventListener("input", () => {
+          const t = Number(slider.value);
+          label.textContent = t + " s";
+        });
+      }
+    </script>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
-

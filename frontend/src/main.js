@@ -15,6 +15,7 @@ let mapa = null            // instancia del mapa Leaflet
 let marcadoresEstaciones = []
 let etiquetaY = "Cuentas"  // etiqueta del eje Y: cambia tras quitar instrumentacion
 let picksFinal = {}
+let tiempoActual = 0
 // ── Referencias a elementos del HTML ─────────────────
 let inputArchivos  = document.getElementById("file-input")
 let btnCargar      = document.getElementById("btn-upload")
@@ -29,6 +30,10 @@ let divTrazas      = document.getElementById("waveforms")
 let divPlaceholder = document.getElementById("waveforms-placeholder")
 let divPicks       = document.getElementById("picks-panel")
 let divChips       = document.getElementById("file-chips")
+let sliderTiempo = document.getElementById("time-slider")
+let labelTiempo = document.getElementById("time-value")
+let labelMin = document.getElementById("time-min")
+let labelMax = document.getElementById("time-max")
 
 // ── Eventos de botones ────────────────────────────────
 btnCargar.addEventListener("click", subirArchivos)
@@ -47,6 +52,17 @@ document.getElementById("btn-next-sta").addEventListener("click", function() {
   if (estacionActual < stacionesFisicas.length - 1) mostrarEstacion(estacionActual + 1)
 })
 
+sliderTiempo.addEventListener("input", function () {
+  tiempoActual = parseFloat(this.value)
+
+  // actualizar etiqueta principal
+  labelTiempo.textContent = tiempoActual + " s"
+
+  // actualizar extremos
+  labelMin.textContent = "0 s"
+  labelMax.textContent = this.max + " s"
+})
+
 // Boton de calculo de epicentro
 btnCalcular.addEventListener("click", async () => {
 
@@ -54,17 +70,32 @@ btnCalcular.addEventListener("click", async () => {
         console.error("No hay picks calculados");
         return;
     }
+    console.log(tiempoActual);
 
     const response = await fetch(API + "/calcular_epicentro", {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
         },
-        body: JSON.stringify(picksFinal)
+        body: JSON.stringify({
+          estaciones: picksFinal,
+          t_origen: tiempoActual
+      })
     });
 
     const result = await response.json();
-    console.log("Epicentro:", result);
+    mostrarMapa()
+    marcadorEpicentro(result);
+    if (result.epicentro_estimado) {
+      const { lat, lon, depth } = result.epicentro_estimado;
+      const eventLat = document.getElementById("event-lat");
+      const eventLon = document.getElementById("event-lon");
+      const eventDepth = document.getElementById("event-depth");
+
+      if (eventLat) eventLat.textContent = lat.toFixed(4);
+      if (eventLon) eventLon.textContent = lon.toFixed(4);
+      if (eventDepth) eventDepth.textContent = depth?.toFixed(2) ?? "N/A";
+  }
 });
 
 
@@ -135,38 +166,29 @@ function iniciarMapa() {
   mapa = L.map("map").setView([0, 0], 2)
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "\u00a9 OpenStreetMap contributors",
-    maxZoom: 18,
+    maxZoom: 10,
   }).addTo(mapa)
 }
 
-function agregarMarcadoresEstaciones() {
-  // Borrar marcadores anteriores
+function marcadorEpicentro(data) {
+  console.log(data);
+
   for (let i = 0; i < marcadoresEstaciones.length; i++) {
-    mapa.removeLayer(marcadoresEstaciones[i])
+    mapa.removeLayer(marcadoresEstaciones[i]);
   }
-  marcadoresEstaciones = []
+  marcadoresEstaciones = [];
 
-  let coordenadas = []
-  let estacionesMapa = {}  // para no agregar dos marcadores en la misma estacion fisica
-  for (let j = 0; j < metadata.length; j++) {
-    let tr = metadata[j]
-    if (tr.stla === 0 && tr.stlo === 0) continue
-    if (estacionesMapa[tr.station]) continue  // ya se agrego esta estacion
-    let m = L.circleMarker([tr.stla, tr.stlo], {
-      radius: 7,
-      color: "#0d6efd",
-      fillColor: "#0d6efd",
-      fillOpacity: 0.6,
-      weight: 2,
-    }).addTo(mapa)
-      .bindPopup("<b>" + tr.station + "</b><br>" + tr.channel)
-    marcadoresEstaciones.push(m)
-    estacionesMapa[tr.station] = true
-    coordenadas.push([tr.stla, tr.stlo])
-  }
+  if (data.epicentro_estimado) {
+    const { lat, lon, rms_minimo } = data.epicentro_estimado;
 
-  if (coordenadas.length > 0) {
-    mapa.fitBounds(L.latLngBounds(coordenadas), { padding: [40, 40], maxZoom: 8 })
+    let epicentroMarker = L.marker([lat, lon])
+      .addTo(mapa);
+
+    marcadoresEstaciones.push(epicentroMarker);
+
+    mapa.setView([lat, lon], 8);
+  } else {
+    console.error("No viene epicentro en la respuesta");
   }
 }
 
@@ -194,7 +216,28 @@ async function subirArchivos() {
     }
     let datos = await respuesta.json()
     metadata = datos.traces
+    let tiempoOrigen = parseFloat(document.getElementById("time-slider").value);
+    let unix = metadata[0].starttime;
 
+    let tiempoCorrigidoUnix = unix + tiempoOrigen;
+    let fecha = new Date(tiempoCorrigidoUnix * 1000);
+
+    console.log(fecha.toISOString());
+    console.log(fecha);
+
+    let yyyy = fecha.getUTCFullYear();
+    let mm = String(fecha.getUTCMonth() + 1).padStart(2, "0");
+    let dd = String(fecha.getUTCDate()).padStart(2, "0");
+
+    let hh = String(fecha.getUTCHours()).padStart(2, "0");
+    let mi = String(fecha.getUTCMinutes()).padStart(2, "0");
+    let ss = String(fecha.getUTCSeconds()).padStart(2, "0");
+
+    let fechaStr = `${yyyy}/${mm}/${dd}`;
+    let horaStr = `${hh}:${mi}:${ss}`;
+
+    document.getElementById("event-date").textContent = fechaStr;
+    document.getElementById("event-time").textContent = horaStr;
     // ── Paso 1: agrupar canales por estacion fisica ────────────────────────
     // Cada clave es el nombre de estacion, el valor es una lista de canales
     let canalesPorEstacion = {}
@@ -263,8 +306,6 @@ async function subirArchivos() {
       picks[stacionesFisicas[k]] = { P: null, S: null }
     }
 
-    agregarMarcadoresEstaciones()
-
     textoEstado.textContent = "Cargando trazas..."
     await cargarTrazas()
 
@@ -311,7 +352,7 @@ async function quitarInstrumentacion() {
     datosTrazas = datos.traces
 
     // Cambiar etiqueta del eje Y a amplitud en mm
-    etiquetaY = "Amplitud (mm)"
+    etiquetaY = "Velocidad(m/s)"
 
     // Volver a dibujar la grafica con los nuevos datos
     dibujarGrafica()

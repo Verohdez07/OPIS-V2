@@ -41,6 +41,3 @@ Thumbs.db
 .env
 .env.*
 *.local
-
-# Archivos data
-data/
